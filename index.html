@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prayer Scroll · Europe</title><style>
+body{margin:0;font-family:Georgia,serif;background:#f5efe2;color:#2b2418;display:flex;justify-content:center}
+main{max-width:640px;width:100%;padding:20px}h1{font-size:1.6rem;margin:.2em 0}.muted{color:#7a6c55;font-size:.9rem}
+.card{background:#fffaf0;border:1px solid #e3d6bb;border-radius:14px;padding:16px;margin:14px 0;box-shadow:0 2px 8px #0001}
+.bar{height:12px;background:#eadfc6;border-radius:6px;overflow:hidden}.bar div{height:100%;background:#8a5a2b;width:0}
+#cd{font-size:2rem;font-variant-numeric:tabular-nums}button{font:inherit;border:0;border-radius:12px;padding:14px 22px;background:#8a5a2b;color:#fff;cursor:pointer}
+#get{width:100%;font-size:1.25rem}input{font:inherit;padding:8px;border:1px solid #cdbb98;border-radius:8px;width:60%}
+#passage h2{font-size:1.15rem;margin:.1em 0}#passage h3{font-size:.95rem;color:#7a6c55;font-weight:normal;margin:0 0 .8em}#passage p{line-height:1.6}
+footer{font-size:.8rem;color:#7a6c55;margin:30px 0}</style></head><body><main>
+<h1>Prayer Scroll · Europe</h1><div class="muted">One merged book of European travels, read from beginning to end between each prayer.</div>
+<div class="card"><div id="status" class="muted">Locating…</div><div id="win"></div><div id="cd">--:--:--</div>
+<div class="bar"><div id="pb"></div></div><div id="pos" class="muted"></div></div>
+<button id="get">Get passage</button>
+<div class="card" id="passage" hidden></div>
+<div class="card"><div class="muted">Location: <span id="loc">—</span></div>
+<input id="city" placeholder="City, Country (e.g. London, UK)"> <button id="setcity" style="padding:8px 14px">Set</button>
+<button id="usegeo" style="padding:8px 14px;background:#a98b62">Use GPS</button></div>
+<footer>Texts: <i>The Innocents Abroad</i> &amp; <i>A Tramp Abroad</i> (Mark Twain), <i>Pictures from Italy</i> (Charles Dickens), <i>An Inland Voyage</i> &amp; <i>Travels with a Donkey in the Cévennes</i> (Robert Louis Stevenson). Public-domain works originally sourced from Project Gutenberg (gutenberg.org); this compilation has been edited and is not a Project Gutenberg product. Prayer times: Aladhan API.</footer>
+</main><script src="logic.js"></script><script>
+const $=id=>document.getElementById(id);let book,times,win;
+const fmt=d=>`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+async function fetchDay(d,loc){
+  const u=loc.city?`https://api.aladhan.com/v1/timingsByAddress/${fmt(d)}?address=${encodeURIComponent(loc.city)}`
+                  :`https://api.aladhan.com/v1/timings/${fmt(d)}?latitude=${loc.lat}&longitude=${loc.lon}`;
+  const j=await (await fetch(u)).json();if(j.code!==200)throw Error(j.data||'API error');
+  const o={};for(const n of Logic.NAMES){const [h,m]=j.data.timings[n].split(' ')[0].split(':');o[n]=new Date(d.getFullYear(),d.getMonth(),d.getDate(),+h,+m)}return o;
+}
+async function load(loc){
+  $('status').textContent='Fetching prayer times…';$('loc').textContent=loc.city||`${(+loc.lat).toFixed(3)}, ${(+loc.lon).toFixed(3)}`;
+  try{const t=new Date();const ds=[-1,0,1].map(k=>new Date(t.getFullYear(),t.getMonth(),t.getDate()+k));
+    times=await Promise.all(ds.map(d=>fetchDay(d,loc)));times.day=t.toDateString();times.loc=loc;$('status').textContent='';tick();}
+  catch(e){$('status').textContent='Could not get prayer times: '+e.message+'. Enter a city below.'}
+}
+function tick(){
+  if(!times)return;const now=new Date();
+  if(now.toDateString()!==times.day)return load(times.loc);
+  win=Logic.windowFor(now,...times);const s=Math.max(0,Math.floor((win.next.t-now)/1000));
+  $('win').textContent=`${win.prev.name} → ${win.next.name} (${win.next.t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})})`;
+  $('cd').textContent=[s/3600|0,(s/60|0)%60,s%60].map(x=>String(x).padStart(2,'0')).join(':');
+  $('pb').style.width=(win.progress*100).toFixed(2)+'%';
+  if(book){const i=Logic.passageIndex(win.progress,book.passages.length);$('pos').textContent=`Passage ${i+1} of ${book.passages.length} · ${(win.progress*100).toFixed(1)}% through the book`}
+}
+setInterval(tick,1000);
+$('get').onclick=()=>{if(!book||!win){alert('Still loading…');return}
+  const [b,ch,txt]=book.passages[Logic.passageIndex(win.progress,book.passages.length)],bk=book.books[b];const el=$('passage');el.hidden=false;el.innerHTML='';
+  const h=document.createElement('h2');h.textContent=`${bk.title} — ${bk.author}`;const h3=document.createElement('h3');h3.textContent=ch;const p=document.createElement('p');p.textContent=txt;el.append(h,h3,p)};
+function geo(){if(!navigator.geolocation){$('status').textContent='No geolocation. Enter a city below.';return}
+  navigator.geolocation.getCurrentPosition(p=>{const l={lat:p.coords.latitude,lon:p.coords.longitude};localStorage.loc=JSON.stringify(l);load(l)},
+  ()=>{$('status').textContent='Location denied. Enter a city below.'})}
+$('setcity').onclick=()=>{const c=$('city').value.trim();if(c){const l={city:c};localStorage.loc=JSON.stringify(l);load(l)}};
+$('usegeo').onclick=geo;
+fetch('book.json').then(r=>r.json()).then(b=>{book=b;tick()});
+localStorage.loc?load(JSON.parse(localStorage.loc)):geo();
+</script></body></html>
